@@ -1,0 +1,7 @@
+"File Internal ID","Script File","Folder","Source","Version","Script Type","Action","Detection Method","File Size (Bytes)","Notes"
+"101","legacy_customer_ue.js","/SuiteScripts/Custom/Legacy","SuiteScripts","1.0","SuiteScript 1.0 / Legacy","CONVERT TO 2.1","Legacy nlapi/nlobj API detected","18420",""
+"102","integration_mr.js","/SuiteScripts/Custom/Integrations","SuiteScripts","2.0","MapReduceScript","UPDATE TO 2.1","@NApiVersion","28612",""
+"103","shared_util.js","/SuiteScripts/Custom/Library","SuiteScripts","Unspecified","Custom Module / Library","REVIEW MODULE","2.x module syntax; no @NApiVersion","7340","@NApiVersion is optional for custom modules; review compatibility with calling scripts."
+"201","vendor_schedule.js","/SuiteBundles/Bundle 12345","SuiteBundles","2.x","ScheduledScript","CONTACT VENDOR","@NApiVersion","12906","Installed/bundled content; verify ownership or publisher update before modifying. Explicit 2.x declaration should be changed to 2.1."
+"301","protected_script.js","/SuiteApps/com.example.app","SuiteApps","Unreadable","Unknown","VERIFY WITH VENDOR","File access denied","","Source could not be read. Installed/bundled content; verify ownership or publisher update before modifying."
+"104","current_restlet.js","/SuiteScripts/Custom/Integrations","SuiteScripts","2.1","Restlet","OK","@NApiVersion","9430",""

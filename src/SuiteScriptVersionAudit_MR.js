@@ -10,18 +10,12 @@
  * @NModuleScope SameAccount
  */
 
-define([
-    'N/file',
-    'N/search',
-    'N/runtime',
-    'N/log'
-], (
+define(['N/file', 'N/search', 'N/runtime', 'N/log'], (
     file,
     search,
     runtime,
     log
 ) => {
-
     const PARAM_OUTPUT_FOLDER = 'custscript_ssva_output_folder';
 
     const ROOT_SUITE_SCRIPTS = 'SuiteScripts';
@@ -39,58 +33,44 @@ define([
      * Files outside the three requested root folders are discarded in map().
      */
     const getInputData = () => {
-
         log.audit({
             title: 'SuiteScript Version Audit',
             details: 'Beginning JavaScript file inventory.'
         });
-
-        return search.create({
-            type: search.Type.FILE,
-            filters: [
-                ['filetype', 'anyof', 'JAVASCRIPT']
-            ],
-            columns: [
-                search.createColumn({ name: 'internalid' }),
-                search.createColumn({ name: 'name' }),
-                search.createColumn({ name: 'folder' }),
-                search.createColumn({ name: 'documentsize' })
-            ]
-        });
+        return {
+            type: 'suiteql',
+            query: `--sql
+SELECT
+  File.id AS internalid,
+  File.name,
+  File.folder,
+  File.fileSize AS documentsize
+FROM
+  File
+WHERE
+  File.fileType = 'JAVASCRIPT'
+`
+        };
     };
 
     /**
      * Inspect one JavaScript file and emit a normalized audit row.
      */
     const map = context => {
-
         const searchResult = JSON.parse(context.value);
         const values = searchResult.values || {};
-
-        const fileId =
-            searchResult.id ||
-            getSearchValue(values.internalid);
-
-        const searchFileName =
-            getSearchValue(values.name) || '';
-
-        const searchFolderId =
-            getSearchValue(values.folder);
-
-        const searchFolderText =
-            getSearchText(values.folder);
-
+        const fileId = getSearchValue(values[0]);
+        const searchFileName = getSearchValue(values[1]) || '';
+        const searchFolderId = getSearchValue(values[2]);
         let scriptFile = null;
         let fileName = searchFileName;
         let filePath = '';
         let folderPath = '';
-        let fileSize =
-            getSearchValue(values.documentsize) || '';
+        let fileSize = getSearchValue(values[3]) || '';
         let readable = true;
         let readError = '';
 
         try {
-
             scriptFile = file.load({ id: fileId });
 
             fileName = scriptFile.name || searchFileName;
@@ -98,16 +78,12 @@ define([
 
             filePath = normalizePath(scriptFile.path || '');
             folderPath = getFolderFromFilePath(filePath);
-
         } catch (e) {
-
             readable = false;
             readError = formatError(e);
 
             // Metadata may remain searchable even when file.load() is denied.
-            folderPath =
-                getFolderPath(searchFolderId) ||
-                normalizeFolderText(searchFolderText);
+            folderPath = getFolderPath(searchFolderId);
         }
 
         const sourceArea = classifySourceArea(folderPath);
@@ -119,11 +95,9 @@ define([
         let scanResult;
 
         if (readable && scriptFile) {
-
             try {
                 scanResult = scanScriptFile(scriptFile);
             } catch (e) {
-
                 readable = false;
                 readError = formatError(e);
 
@@ -133,9 +107,7 @@ define([
                     scriptType: 'Unknown'
                 };
             }
-
         } else {
-
             scanResult = {
                 version: 'Unreadable',
                 detectionMethod: 'File access denied',
@@ -143,10 +115,7 @@ define([
             };
         }
 
-        const action = determineAction(
-            scanResult.version,
-            sourceArea
-        );
+        const action = determineAction(scanResult.version, sourceArea);
 
         const notes = buildNotes({
             sourceArea,
@@ -177,8 +146,7 @@ define([
      * Preserve one row per file for summarize().
      */
     const reduce = context => {
-
-        if (!context.values || !context.values.length) {
+        if (!context.values?.length) {
             return;
         }
 
@@ -192,27 +160,23 @@ define([
      * Sort the results, write the CSV, and log totals.
      */
     const summarize = summary => {
-
         logInputError(summary);
         logStageErrors('MAP', summary.mapSummary);
         logStageErrors('REDUCE', summary.reduceSummary);
 
-        const outputFolderId =
-            runtime.getCurrentScript().getParameter({
-                name: PARAM_OUTPUT_FOLDER
-            });
+        const outputFolderId = runtime.getCurrentScript().getParameter({
+            name: PARAM_OUTPUT_FOLDER
+        });
 
         if (!outputFolderId) {
             throw new Error(
-                'Output Folder Internal ID is required. ' +
-                `Set deployment parameter ${PARAM_OUTPUT_FOLDER}.`
+                `Output Folder Internal ID is required. Set deployment parameter ${PARAM_OUTPUT_FOLDER}.`
             );
         }
 
         const rows = [];
 
         summary.output.iterator().each((key, value) => {
-
             try {
                 rows.push(JSON.parse(value));
             } catch (e) {
@@ -244,16 +208,13 @@ define([
             'Notes'
         ];
 
-        const outputFileName =
-            'SuiteScript_Version_Audit_' +
-            createTimestamp() +
-            '.csv';
+        const outputFileName = `SuiteScript_Version_Audit_${createTimestamp()}.csv`;
 
         const csvFile = file.create({
             name: outputFileName,
             fileType: file.Type.CSV,
-            contents: header.map(csvEscape).join(',') + '\n',
-            encoding: file.Encoding.UTF8,
+            contents: `${header.map(csvEscape).join(',')}\n`,
+            encoding: file.Encoding.UTF_8,
             folder: Number(outputFolderId)
         });
 
@@ -272,7 +233,6 @@ define([
         };
 
         rows.forEach(row => {
-
             csvFile.appendLine({
                 value: [
                     row.fileId,
@@ -285,7 +245,9 @@ define([
                     row.detectionMethod,
                     row.fileSize,
                     row.notes
-                ].map(csvEscape).join(',')
+                ]
+                    .map(csvEscape)
+                    .join(',')
             });
 
             updateTotals(totals, row);
@@ -311,7 +273,6 @@ define([
      * Stream the complete source file while retaining only a small overlap.
      */
     const scanScriptFile = scriptFile => {
-
         const reader = scriptFile.getReader();
 
         let carry = '';
@@ -321,7 +282,6 @@ define([
         let amdModuleDetected = false;
 
         while (true) {
-
             const chunk = reader.readChars({
                 number: READ_CHUNK_SIZE
             });
@@ -333,7 +293,6 @@ define([
             const source = carry + chunk;
 
             if (!declaredVersion) {
-
                 const versionMatch = source.match(
                     /@NApiVersion\s+([0-9]+(?:\.[0-9xX]+)?)/i
                 );
@@ -344,10 +303,7 @@ define([
             }
 
             if (!scriptType) {
-
-                const typeMatch = source.match(
-                    /@NScriptType\s+([^\s*]+)/i
-                );
+                const typeMatch = source.match(/@NScriptType\s+([^\s*]+)/i);
 
                 if (typeMatch) {
                     scriptType = typeMatch[1];
@@ -361,8 +317,7 @@ define([
             }
 
             if (!amdModuleDetected) {
-                amdModuleDetected =
-                    /\b(?:define|require)\s*\(/.test(source);
+                amdModuleDetected = /\b(?:define|require)\s*\(/.test(source);
             }
 
             carry = source.slice(-REGEX_OVERLAP);
@@ -374,9 +329,7 @@ define([
                 version: declaredVersion,
                 scriptType:
                     scriptType ||
-                    (amdModuleDetected
-                        ? 'Custom Module / Library'
-                        : 'Unknown'),
+                    (amdModuleDetected ? 'Custom Module / Library' : 'Unknown'),
                 detectionMethod: '@NApiVersion'
             };
         }
@@ -385,9 +338,7 @@ define([
         if (legacyApiDetected) {
             return {
                 version: '1.0',
-                scriptType:
-                    scriptType ||
-                    'SuiteScript 1.0 / Legacy',
+                scriptType: scriptType || 'SuiteScript 1.0 / Legacy',
                 detectionMethod: 'Legacy nlapi/nlobj API detected'
             };
         }
@@ -396,43 +347,33 @@ define([
         if (amdModuleDetected) {
             return {
                 version: 'Unspecified',
-                scriptType:
-                    scriptType ||
-                    'Custom Module / Library',
+                scriptType: scriptType || 'Custom Module / Library',
                 detectionMethod: '2.x module syntax; no @NApiVersion'
             };
         }
 
         return {
             version: 'Unknown',
-            scriptType:
-                scriptType ||
-                'Plain JavaScript / Unknown',
+            scriptType: scriptType || 'Plain JavaScript / Unknown',
             detectionMethod: 'No SuiteScript version marker detected'
         };
     };
 
     const determineAction = (version, sourceArea) => {
-
         const installedContent =
-            sourceArea === ROOT_SUITE_APPS ||
-            sourceArea === ROOT_SUITE_BUNDLES;
+            sourceArea === ROOT_SUITE_APPS || sourceArea === ROOT_SUITE_BUNDLES;
 
         if (version === '2.1') {
             return 'OK';
         }
 
         if (version === 'Unreadable') {
-            return installedContent
-                ? 'VERIFY WITH VENDOR'
-                : 'REVIEW';
+            return installedContent ? 'VERIFY WITH VENDOR' : 'REVIEW';
         }
 
         if (
             installedContent &&
-            (version === '1.0' ||
-                version === '2.0' ||
-                version === '2.x')
+            (version === '1.0' || version === '2.0' || version === '2.x')
         ) {
             return 'CONTACT VENDOR';
         }
@@ -448,9 +389,7 @@ define([
                     ? 'VERIFY WITH VENDOR'
                     : 'REVIEW MODULE';
             default:
-                return installedContent
-                    ? 'VERIFY WITH VENDOR'
-                    : 'REVIEW';
+                return installedContent ? 'VERIFY WITH VENDOR' : 'REVIEW';
         }
     };
 
@@ -461,7 +400,6 @@ define([
         readable,
         readError
     }) => {
-
         const notes = [];
 
         if (!readable) {
@@ -482,9 +420,7 @@ define([
         }
 
         if (version === '2.x') {
-            notes.push(
-                'Explicit 2.x declaration should be changed to 2.1.'
-            );
+            notes.push('Explicit 2.x declaration should be changed to 2.1.');
         }
 
         if (version === 'Unspecified') {
@@ -506,7 +442,6 @@ define([
     };
 
     const classifySourceArea = path => {
-
         if (!path) {
             return '';
         }
@@ -533,7 +468,6 @@ define([
      * when file.load() is denied but the file's folder remains searchable.
      */
     const getFolderPath = (folderId, visited = {}) => {
-
         if (!folderId) {
             return '';
         }
@@ -551,7 +485,6 @@ define([
         visited[cacheKey] = true;
 
         try {
-
             const folderData = search.lookupFields({
                 type: search.Type.FOLDER,
                 id: folderId,
@@ -561,19 +494,13 @@ define([
             const folderName = folderData.name || '';
             const parentId = getSearchValue(folderData.parent);
 
-            const parentPath = parentId
-                ? getFolderPath(parentId, visited)
-                : '';
+            const parentPath = parentId ? getFolderPath(parentId, visited) : '';
 
-            const path = normalizePath(
-                `${parentPath}/${folderName}`
-            );
+            const path = normalizePath(`${parentPath}/${folderName}`);
 
             folderPathCache[cacheKey] = path;
             return path;
-
         } catch (e) {
-
             log.debug({
                 title: 'Unable to resolve folder path',
                 details: {
@@ -587,7 +514,6 @@ define([
     };
 
     const getFolderFromFilePath = path => {
-
         if (!path) {
             return '';
         }
@@ -603,7 +529,6 @@ define([
     };
 
     const normalizePath = value => {
-
         if (!value) {
             return '';
         }
@@ -614,7 +539,7 @@ define([
             .trim();
 
         if (!result.startsWith('/')) {
-            result = '/' + result;
+            result = `/${result}`;
         }
 
         if (result.length > 1 && result.endsWith('/')) {
@@ -624,62 +549,23 @@ define([
         return result;
     };
 
-    // File search folder text can look like "SuiteScripts : Custom : Lib".
-    const normalizeFolderText = value => {
-
-        if (!value) {
-            return '';
-        }
-
-        return normalizePath(
-            String(value).replace(/\s+:\s+/g, '/')
-        );
-    };
-
     const getSearchValue = value => {
-
         if (value === null || value === undefined) {
             return '';
         }
 
         if (Array.isArray(value)) {
-            return value.length
-                ? getSearchValue(value[0])
-                : '';
+            return value.length ? getSearchValue(value[0]) : '';
         }
 
         if (typeof value === 'object') {
-            return value.value !== undefined
-                ? value.value
-                : '';
+            return value.value !== undefined ? value.value : '';
         }
 
         return value;
     };
 
-    const getSearchText = value => {
-
-        if (value === null || value === undefined) {
-            return '';
-        }
-
-        if (Array.isArray(value)) {
-            return value.length
-                ? getSearchText(value[0])
-                : '';
-        }
-
-        if (typeof value === 'object') {
-            return value.text !== undefined
-                ? value.text
-                : '';
-        }
-
-        return String(value);
-    };
-
     const normalizeVersion = version => {
-
         const value = String(version || '').trim();
 
         if (/^2\.x$/i.test(value)) {
@@ -690,15 +576,14 @@ define([
     };
 
     const compareAuditRows = (a, b) => {
-
         const actionRank = {
             'CONVERT TO 2.1': 1,
             'UPDATE TO 2.1': 2,
             'CONTACT VENDOR': 3,
             'VERIFY WITH VENDOR': 4,
-            'REVIEW': 5,
+            REVIEW: 5,
             'REVIEW MODULE': 6,
-            'OK': 9
+            OK: 9
         };
 
         const rankA = actionRank[a.action] || 7;
@@ -724,30 +609,23 @@ define([
             return folderCompare;
         }
 
-        return String(a.fileName || '').localeCompare(
-            String(b.fileName || '')
-        );
+        return String(a.fileName || '').localeCompare(String(b.fileName || ''));
     };
 
     /**
      * Quote CSV values and mitigate formula injection when opened in Excel.
      */
     const csvEscape = value => {
-
-        let text =
-            value === null || value === undefined
-                ? ''
-                : String(value);
+        let text = value === null || value === undefined ? '' : String(value);
 
         if (/^[=+\-@]/.test(text)) {
-            text = "'" + text;
+            text = `'${text}`;
         }
 
-        return '"' + text.replace(/"/g, '""') + '"';
+        return `"${text.replace(/"/g, '""')}"`;
     };
 
     const createTimestamp = () => {
-
         return new Date()
             .toISOString()
             .replace(/\.\d{3}Z$/, 'Z')
@@ -756,7 +634,6 @@ define([
     };
 
     const updateTotals = (totals, row) => {
-
         totals.total++;
 
         switch (row.source) {
@@ -797,7 +674,6 @@ define([
     };
 
     const formatError = e => {
-
         if (!e) {
             return 'Unknown error';
         }
@@ -806,8 +682,7 @@ define([
     };
 
     const logInputError = summary => {
-
-        if (summary.inputSummary && summary.inputSummary.error) {
+        if (summary.inputSummary?.error) {
             log.error({
                 title: 'INPUT ERROR',
                 details: summary.inputSummary.error
@@ -816,8 +691,7 @@ define([
     };
 
     const logStageErrors = (stageName, stageSummary) => {
-
-        if (!stageSummary || !stageSummary.errors) {
+        if (!stageSummary?.errors) {
             return;
         }
 
